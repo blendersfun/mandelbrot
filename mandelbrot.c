@@ -126,11 +126,12 @@ int main()
         "              .............................                           ",
         "              ^         bottom                                        ",
         "           SW corner                                                  ");
-        printf("\n\n\n%s\n%s\n%s\n%s\n%s\n%s",
+        printf("\n\n\n%s\n%s\n%s\n%s\n%s\n%s\n%s",
         "Using complex plane coordinates, specify the SW corner of the area    ",
         "you want to magnify and the length of the bottom of the rectangle.    ",
         "                                                                      ",
         "First, the coordinates.  Specify the horizontal coordinate of SW:     ",
+        "(X should be between -2.5 and 0.80)                                   ",
         "                                                                      ",
         "                 X = ");
         while(1) {
@@ -141,7 +142,10 @@ int main()
             "X should be between -2.5 and 0.80 -- try again: X = ");
         }
         printf("\n\n%s%lf","X = ", swX);
-        printf("\n\nNow enter the vertical coordinate:  Y = ");
+        printf("\n\n%s\n%s\n%s",
+        "Now enter the vertical coordinate:  ",
+        "(Y should be between -1.25 and 1.25)",
+        "                 Y = ");
         while(1) {
             scanf("%lf", &swY);
             if (swY <= 1.25 && swY >= -1.25) break;
@@ -153,7 +157,7 @@ int main()
         printf("\n\nNow enter the rectangle bottom dimension: B = ");
         while(1) {
             scanf("%lf", &BOT);
-            printf("\n\n%s%lf","B = ", BOT);
+            printf("\n\n%s%lf\n","B = ", BOT);
             SID = BOT * HEIGHT/WIDTH;
             limx = 0.8-swX;
             limy = 1.25-swY;

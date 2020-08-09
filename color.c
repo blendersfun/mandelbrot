@@ -15,9 +15,13 @@
 
 //#include <graph.h>
 #include <SDL2/SDL.h>
+#include <SDL2/SDL_ttf.h>
 #include "sdl_helpers.c"
 
 #define RGB( rd, g, b) (0x3F3F3FL & ( (long) (b) << 16 | (g) << 8 | (rd) ) )
+
+const int WIDTH = 580;
+const int HEIGHT = 406;
 
 int pix[580][406];          /* screen pixels */
 FILE *fopen();              /* file open function */
@@ -102,7 +106,7 @@ int main()
 /*
  *   prepare graph labels
  */
-    SID = BOT * 406/580;
+    SID = BOT * HEIGHT/WIDTH;
     sprintf (IV, "%22.20f", (BOT/10));
     sprintf(OX, "%12.9f", swX);
     sprintf(OY, "%12.9f", swY);
@@ -291,6 +295,8 @@ int main()
     _lineto(166,8);
     _moveto(108,14);
     _lineto(108,8); 
+#elif defined SDL_VERSION
+    setupGraphics("Mandelbrot", WIDTH, HEIGHT);
 #endif
 
 /*
@@ -404,6 +410,9 @@ int main()
 #if defined _VRES16COLOR
     getch();                        /* pause */
     _setvideomode(_DEFAULTMODE);
+#elif defined SDL_VERSION
+    waitForExit();
+    cleanupGraphics();
 #endif
 }
 

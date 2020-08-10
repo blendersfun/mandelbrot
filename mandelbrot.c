@@ -1,5 +1,5 @@
 /*
- * Mandelbrot Explorer
+ * Mandelbrot Frame Rendering
  *
  * Aaron Moore, August 2020
  * 
@@ -7,6 +7,10 @@
  *
  * Written by Dan Moore in June 1995
  *
+ */
+
+/*
+ * To build and run: `gcc mandelbrot.c -lm -lSDL2 -lSDL2_ttf -o mandelbrot && ./mandelbrot`
  */
 
 #include <math.h>
@@ -20,10 +24,25 @@
 #include "sdl_helpers.c"
 
 #if defined SDL_VERSION
+void renderFrame(char*, char*, int, int, int, int);
 #endif
 
+#if defined SDL_VERSION
+#endif
+
+/*
+ * Macro RGB. Creates a 32 bit integer that represents an RGB color value.
+ * Colors are 64-bit (as is enforced by the 3F mask). Their bytes are arranged
+ * like so:
+ *            [0][B][G][R]
+ *          31^          ^0
+ */
 #define RGB( rd, g, b) (0x3F3F3FL & ( (long) (b) << 16 | (g) << 8 | (rd) ) )
 
+/*
+ * Todo: Consider refactor to use <complex.h> which supports complex numbers
+ *       as part of the standard library cince C99. 
+ */
 typedef struct FCOMPLEX {double r,i;} fcomplex;
 
 const int WIDTH = 580;
@@ -36,7 +55,11 @@ FILE *fpout;                /* output file pointer */
 int main()
 {
     int ans;                 /* miscellaneous user response */
+#if defined _VRES16COLOR
     long int bluehi;         /* the color bluehi created by macro RGB */
+#elif defined SDL_VERSION
+    SDL_Color bluehi;        /* the color bluehi as represented in SDL */
+#endif
     double BOT;              /* bottom dimension of the rectangular area
                                 of the complex plane to be examined */
     fcomplex C;              /* complex # at each pixel */
@@ -156,8 +179,8 @@ int main()
 /**********************************************************
  *  do complex calculations and determine # of iterations:
  **********************************************************/
-    bluehi = RGB( 31, 0, 63 );
 #if defined _VRES16COLOR
+    bluehi = RGB( 31, 0, 63 );
     _remappalette( 9, bluehi);
 #endif
     strcpy(progress,"percent of complex plane completed:");
@@ -180,6 +203,8 @@ int main()
     _lineto(197,247);
 #elif defined SDL_VERSION
     setupGraphics("Mandelbrot", WIDTH, HEIGHT);
+    bluehi = (SDL_Color) { 127, 0, 255, 255 };
+    assignPalletColor(9, &bluehi);
 #endif
 
     chunk = 1.0;
@@ -215,7 +240,17 @@ int main()
             Z = Complex(0,0);
             C = Complex( RE, IM );
             for ( k = 0; k <= 1000; k++) {
+                /*
+                 * Mandelbrot Equatation: Zn+1 = Zn^2 + C
+                 */
                 Z = Cadd( ( Cmul( Z, Z ) ), C );
+
+                /**
+                 * Absolute Value of Z, |Z|.
+                 * Absolute Value of N can be formulated as sqrt(N^2)
+                 * For Complex Numbers, this essentially becomes the Distance Formula.
+                 * Distance Formula: SZ^2 = R^2 + I^2
+                 */
                 SZ = sqrt( (Z.r * Z.r) + (Z.i * Z.i) );
                 if ( SZ > 2 ) break;
             }
@@ -274,21 +309,37 @@ double re, im;              /* real and imaginary parts of complex #'s */
     return c;
 }
 
+/*
+ * Complex number multiplcation.
+ *
+ * A demonstration of why the below
+ * computation is correct:
+ *  (A+Bi)*(C+Di)
+ *  A*C + A*Di + Bi*C + Bi*Di
+ *  A*C + A*Di + Bi*C + B*D*(i^2)
+ *  A*C + A*Di + Bi*C + B*D*(-1)
+ *  (A*C - B*D) + (A*Di + C*Bi)
+ */
 fcomplex Cmul(a,b)
 fcomplex a,b;
 {
     fcomplex c;
-    c.r=a.r*b.r-a.i*b.i;
-    c.i=a.i*b.r+a.r*b.i;
+    c.r= a.r*b.r - a.i*b.i;
+    c.i= a.i*b.r + a.r*b.i;
     return c;
 }
 
+/*
+ * Complex number addition.
+ * (A+Bi) + (C+Di)
+ * (A+C) + (B+D)i
+ */
 fcomplex Cadd(a,b)
 fcomplex a,b;
 {
     fcomplex c;
-    c.r=a.r+b.r;
-    c.i=a.i+b.i;
+    c.r = a.r + b.r;
+    c.i = a.i + b.i;
     return c;
 }
 
@@ -298,7 +349,7 @@ void renderFrame(char *progress, char *s, int x1, int y1, int x2, int y2) {
     newFrame();
 
     // Draw progress text
-    setColor(0x7F, 0x00, 0xFF);
+    setPalletColor(3);
     setPosition(50, 200);
     printText(progress);
 
@@ -310,14 +361,14 @@ void renderFrame(char *progress, char *s, int x1, int y1, int x2, int y2) {
     drawLineAndSetPosition(197, 247);
 
     // Draw rect
-    setColor(0xFF, 0x00, 0xFF);
+    setPalletColor(9);
     SDL_Rect fill ={
         x1, y1, x2 - x1, y2 - y1 
     }; 
     SDL_RenderFillRect(renderer, &fill);
 
     // Draw progress percent
-    setColor(0xFF, 0x00, 0xFF);
+    setPalletColor(3);
     setPosition(230, 230);
     printText(s);
 

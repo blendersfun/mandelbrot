@@ -1,3 +1,13 @@
+/*
+ * SDL Helpers
+ *
+ * Aaron Moore, August 2020
+ *
+ * These helper functions implement a similar API to
+ * that provided by graph.h in order to make the port
+ * of the programs M and COLOR simpler.
+ */
+
 #include <stdio.h>
 #include <SDL2/SDL.h>
 
@@ -8,16 +18,19 @@ void cleanupAndExit(char*, const char*);
 void waitForExit();
 void newFrame();
 void setColor(Uint8, Uint8, Uint8);
+void assignPalletColor(Uint8, SDL_Color*);
+void setPalletColor(Uint8);
 void setPosition(int, int);
 void printText(char*);
 void drawLineAndSetPosition(int, int);
-void renderFrame(char*, char*, int, int, int, int);
+void colorPixel(int, int);
 
 SDL_Window *window = 0;
 SDL_Renderer *renderer = 0;
 TTF_Font *font = 0;
 SDL_Color color = { 0x00, 0x00, 0x00, 0xFF };
 SDL_Point position = { 0, 0 };
+SDL_Color pallet[255];
 #endif
 
 #if defined SDL_VERSION
@@ -39,9 +52,12 @@ void setupGraphics(char *title, int width, int height) {
     renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
     SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0x00, 0xFF);
 
-    font = TTF_OpenFont("freefont-ttf/sfd/FreeSans.ttf", 24);
+    font = TTF_OpenFont("freefont-ttf/sfd/FreeSans.ttf", 12);
     if (!font) {
         cleanupAndExit("Unable to load font.", TTF_GetError());
+    }
+    for (int i = 0; i < 255; i++) {
+        pallet[i] = (SDL_Color) { 255, 255, 255, 255 };
     }
 }
 void cleanupGraphics() {
@@ -89,13 +105,20 @@ void setColor(Uint8 r, Uint8 g, Uint8 b) {
     color.b = b;
     SDL_SetRenderDrawColor(renderer, r, g, b, 255);
 }
+void assignPalletColor(Uint8 c, SDL_Color *v) {
+    pallet[c] = (SDL_Color) { v->r, v->g, v->b, 0xFF };
+}
+void setPalletColor(Uint8 c) {
+    SDL_Color p = pallet[c];
+    setColor(p.r, p.g, p.b);
+}
 void setPosition(int x, int y) {
     position.x = x;
     position.y = y;
 }
 void printText(char *text) {
     // Render text
-    SDL_Surface *textSurface = TTF_RenderText_Solid(
+    SDL_Surface *textSurface = TTF_RenderText_Blended(
         font,
         text,
         color
@@ -119,5 +142,8 @@ void printText(char *text) {
 void drawLineAndSetPosition(int x, int y) {
     SDL_RenderDrawLine(renderer, position.x, position.y, x, y);
     setPosition(x, y);
+}
+void colorPixel(int x, int y) {
+    SDL_RenderDrawPoint(renderer, x, y);
 }
 #endif

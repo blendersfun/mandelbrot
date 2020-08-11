@@ -52,6 +52,8 @@ void freeFrame(struct Frame*);
 const int SCREEN_WIDTH = 700;
 const int SCREEN_HEIGHT = 500;
 
+const SDL_Point FRAME_ORIGIN = { 50, 14 };
+
 struct Display {
     SDL_Window *window;
     SDL_Renderer *renderer;
@@ -188,10 +190,10 @@ void displayFrame(struct Display *display, struct Frame *frame) {
     SDL_RenderClear(display->renderer);
     setColor(display, 255, 255, 255);
 
-    const short xStart = 50;
-    const short yStart = 14;
-    const short xEnd = FRAME_WIDTH + 50;
-    const short yEnd = FRAME_HEIGHT + 14;
+    const short xStart = FRAME_ORIGIN.x;
+    const short yStart = FRAME_ORIGIN.y;
+    const short xEnd = FRAME_WIDTH + FRAME_ORIGIN.x;
+    const short yEnd = FRAME_HEIGHT + FRAME_ORIGIN.y;
     
     // Draw Rectangle that will enclose the actual frame
 
@@ -211,22 +213,22 @@ void displayFrame(struct Display *display, struct Frame *frame) {
     const short markWidth = 6;
 
     // Draw Left interval markers
-    for (short y = 14; y <= yEnd; y += 58) {
+    for (short y = FRAME_ORIGIN.y; y <= yEnd; y += 58) {
         setPosition(display, xStart - markWidth, y);
         drawLineAndSetPosition(display, xStart, y);
     }
     // Draw Bottom Side interval markers
-    for (short x = 50; x <= xEnd; x += 58) {
+    for (short x = FRAME_ORIGIN.x; x <= xEnd; x += 58) {
         setPosition(display, x, yEnd + 6);
         drawLineAndSetPosition(display, x, yEnd);
     }
     // Draw Right interval markers
-    for (short y = 14; y <= yEnd; y += 58) {
+    for (short y = FRAME_ORIGIN.y; y <= yEnd; y += 58) {
         setPosition(display, xEnd + markWidth, y);
         drawLineAndSetPosition(display, xEnd, y);
     }
     // Draw Top Side interval markers
-    for (short x = 50; x <= xEnd; x += 58) {
+    for (short x = FRAME_ORIGIN.x; x <= xEnd; x += 58) {
         setPosition(display, x, yStart - 6);
         drawLineAndSetPosition(display, x, yStart);
     }
@@ -250,7 +252,6 @@ void displayFrame(struct Display *display, struct Frame *frame) {
 
     // Display Empty Frame (if no frame data is provided)
     if (!frame) {
-        SDL_RenderPresent(display->renderer);
         return;
     }
 
@@ -353,9 +354,6 @@ void displayFrame(struct Display *display, struct Frame *frame) {
             colorPixel(display, r+51, i+15);
         }
     }
-    
-    // Display New Frame
-    SDL_RenderPresent(display->renderer);
 }
 
 int main(int argc, char *argv[]) {
@@ -364,15 +362,20 @@ int main(int argc, char *argv[]) {
 
     // Display Empty Graph
     displayFrame(display, NULL);
+    SDL_RenderPresent(display->renderer);
 
     // Render Start Frame (fully zoomed out)
     struct Frame *start = renderFrame(NULL, -2.5, -1.25, 3.5);
     struct Frame *current = start;
     displayFrame(display, current);
+    SDL_RenderPresent(display->renderer);
 
     // Wait for Input
     SDL_Event e;
-    int running = 1;
+    short running = 1;
+    short zooming = 0;
+    SDL_Point zoomCenter = { 0, 0 };
+    SDL_Rect zoom = { 0, 0, 0, 0 };
     while (running) {
         if (!SDL_WaitEvent(&e)) continue;
         if (e.type == SDL_QUIT) {
@@ -380,7 +383,69 @@ int main(int argc, char *argv[]) {
         } else if (e.type == SDL_KEYDOWN) {
             if (e.key.keysym.sym == SDLK_ESCAPE) {
                 running = 0;
+            } else if (e.key.keysym.sym == SDLK_LEFT) {
+                if (current->parent) {
+                    current = current->parent;
+                    displayFrame(display, current);
+                    SDL_RenderPresent(display->renderer);
+                }
+            } else if (e.key.keysym.sym == SDLK_RIGHT) {
+                if (current->child) {
+                    current = current->child;
+                    displayFrame(display, current);
+                    SDL_RenderPresent(display->renderer);
+                }
             }
+        } else if (e.type == SDL_MOUSEBUTTONDOWN) {
+            // Set zoom center
+            zoomCenter.x = e.button.x;
+            zoomCenter.y = e.button.y;
+            zooming = 1;
+        } else if (e.type == SDL_MOUSEMOTION) {
+            if (!zooming) continue;
+
+            // Compute zoom rect
+            int diffX = abs(zoomCenter.x - e.motion.x);
+            int diffY = (int) (((float) FRAME_HEIGHT / FRAME_WIDTH) * diffX);
+            if (e.motion.y > zoomCenter.y + diffY || e.motion.y < zoomCenter.y - diffY) {
+                diffY = abs(zoomCenter.y - e.motion.y);
+                diffX = (int) (((float) FRAME_WIDTH / FRAME_HEIGHT) * diffY);
+            }
+            zoom.x = zoomCenter.x - diffX;
+            zoom.y = zoomCenter.y - diffY;
+            zoom.w = diffX * 2;
+            zoom.h = diffY * 2;
+            
+            displayFrame(display, current);
+            setColor(display, 255, 255, 255);
+            SDL_RenderDrawRect(display->renderer, &zoom);
+            SDL_RenderPresent(display->renderer);
+        } else if (e.type == SDL_MOUSEBUTTONUP) {
+            // Compute new frame parameters
+
+            // Start with pixel coordinates relative to the frame origin
+            double x = (double) zoom.x - FRAME_ORIGIN.x;
+            double y = (double) zoom.y + zoom.h - FRAME_ORIGIN.y;
+            double w = (double) zoom.w;
+            double gap = current->w / FRAME_WIDTH;
+
+            // Convert pixel coordinates to frame coordinates
+            x = current->x + gap*x;
+            y = current->y + gap*(FRAME_HEIGHT - y);
+            w = gap*w;
+
+            if (current->child) freeFrame(current->child);
+            current->child = renderFrame(current, x, y, w);
+            current = current->child;
+            displayFrame(display, current);
+            SDL_RenderPresent(display->renderer);
+            
+            // Reset
+            zooming = 0;
+            zoom.x = 0;
+            zoom.y = 0;
+            zoom.w = 0;
+            zoom.h = 0;
         }
     }
     

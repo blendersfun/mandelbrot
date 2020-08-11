@@ -8,6 +8,12 @@
  * written by dan moore in June 1995
  *
  */
+
+/*
+ * To build and run: `gcc sdl_port/color.c -lm -lSDL2 -lSDL2_ttf -o color && ./color`
+ * (must be done in the root project folder)
+ */
+
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>

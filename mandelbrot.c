@@ -1,249 +1,444 @@
-/*
- * Mandelbrot Frame Rendering
- *
- * Aaron Moore, August 2020
- * 
- * Adapted from 'PROGRAM M'
- *
- * Written by Dan Moore in June 1995
- *
- */
-
-/*
- * To build and run: `gcc mandelbrot.c -lm -lSDL2 -lSDL2_ttf -o mandelbrot && ./mandelbrot`
- */
 
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-// #include <graph.h>
+#include "complex.h"
+
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
-#include "sdl_helpers.c"
 
-#if defined SDL_VERSION
-void renderFrame(char*, char*, int, int, int, int);
-#endif
-
-#if defined SDL_VERSION
-#endif
 
 /*
- * Macro RGB. Creates a 32 bit integer that represents an RGB color value.
- * Colors are 64-bit (as is enforced by the 3F mask). Their bytes are arranged
- * like so:
- *            [0][B][G][R]
- *          31^          ^0
+ * The Frame struct stores a single frame of the
+ * Mandelbrot set. A frame is defined as the k
+ * values at all points in the 580 x 406 grid
+ * given an origin point and width. Depending on
+ * the width, frames may be at different levels
+ * of magnification.
+ *
+ * Frames also can have pointers to parents and
+ * children, which are zoomed out or zoomed in
+ * from the current frame, respectively.
  */
-#define RGB( rd, g, b) (0x3F3F3FL & ( (long) (b) << 16 | (g) << 8 | (rd) ) )
+
+// Width and Height of a single mandelbrot set frame.
+#define FRAME_WIDTH 580
+#define FRAME_HEIGHT 406
+
+struct Frame {
+    struct Frame *parent;
+    struct Frame *child;
+
+    unsigned short k[FRAME_WIDTH][FRAME_HEIGHT]; // Values of k at each point.
+    double min; // Minimum k value in this frame.
+
+    // The origin is the bottom-left corner.
+    double x; // Origin on the x axis.
+    double y; // Origin on the y axis.
+
+    double w; // Width.
+};
+
+struct Frame* renderFrame(struct Frame*, double, double, double);
+void freeFrame(struct Frame*);
 
 /*
- * Todo: Consider refactor to use <complex.h> which supports complex numbers
- *       as part of the standard library cince C99. 
+ * Graphics
  */
-typedef struct FCOMPLEX {double r,i;} fcomplex;
 
-const int WIDTH = 580;
-const int HEIGHT = 406;
+// Width and Height of the window.
+const int SCREEN_WIDTH = 700;
+const int SCREEN_HEIGHT = 500;
 
-int pix[580][406];          /* screen pixels */
-FILE *fopen();              /* file open function */
-FILE *fpout;                /* output file pointer */
+struct Display {
+    SDL_Window *window;
+    SDL_Renderer *renderer;
+    TTF_Font *font;
+    SDL_Color color;
+    SDL_Point position;
+    SDL_Color pallet[255];
+};
 
-int main()
-{
-    int ans;                 /* miscellaneous user response */
-#if defined _VRES16COLOR
-    long int bluehi;         /* the color bluehi created by macro RGB */
-#elif defined SDL_VERSION
-    SDL_Color bluehi;        /* the color bluehi as represented in SDL */
-#endif
-    double BOT;              /* bottom dimension of the rectangular area
-                                of the complex plane to be examined */
-    fcomplex C;              /* complex # at each pixel */
-    float chunk;             /* for graphical chunks of progress */
-    double fabs(double);     /* absolute value function */
-    double gap;              /* distance between pixels (on complex plane) */
-    int i, j, k, n, m;       /* loop indices, array subscripts, or flags */
-    int ii, jj, kk;          /* loop indices, array subscripts, or flags */
-    int len;                 /* string length */
-    double limx, limy;       /* limit on size of rect. area of complex plane */
-    int min;                 /* lowest k value */
-    double pow(double, double);    /* computes arg1 raised to arg2 power */
-    char progress[40];        /* info to user */
-    double RE, IM;           /* real and imaginary parts for each pixel */
-    char resp[20];           /* miscellaneous user response */
-    char s[5];               /* char version of sofar for graphic display */
-    double SID;              /* side dimension of rectangular area
-                                of the complex plane to be examined */
-    float sofar;             /* indication of the progress of calculations */
-    double swX;              /* x-coordinate of southwest corner of square area
-                                of the complex plane to be examined */
-    double swY;              /* y-coordinate of southwest corner of square area
-                                of the complex plane to be examined */
-    float SZ;                /* "size" or modulus of complex number  */
-    int x1;                  /* x-coord. of SW corner of progress rectangle */
-    int x2;                  /* x-coord. of NE corner of progress rectangle */
-    int y1;                  /* y-coord. of SW corner of progress rectangle */
-    int y2;                  /* y-coord. of NE corner of progress rectangle */
-    fcomplex Z;              /* complex solution of equation being tested  */
+void destroyDisplayAndExit(struct Display*, char*, const char*);
 
-    fcomplex Complex(double,double);
-    fcomplex Cmul(fcomplex,fcomplex);
-    fcomplex Cadd(fcomplex,fcomplex);
-
-
-    printf("\n\n\nMandelbrot Set Exploration Program");
-
-    printf("\n\n%s\n%s\n%s",
-           "choose (1) for a full size Mandelbrot set,",
-           "    or (2) to magnify a section of the set.",
-           "    -> ");
-    scanf("%d", &ans);
-
-    printf("\n\nplease specify an output filename (q to quit) -> ");
-    scanf("%s", resp);
-    if ((len = strlen(resp)) == 0 || (len == 1 && (resp[0] == 'q'
-        || resp[0] == 'Q')))
-        exit(0);
-    if ((fpout = fopen(resp, "w")) == NULL) {
-        printf("\n\nError opening file %s ...\nProgram terminated ...\n",
-              resp);
+struct Display* createDisplay() {
+    struct Display *display = malloc(sizeof(struct Display));
+    if (!display) {
+        printf("Unable to allocate memory for display.\n");
         exit(0);
     }
-
-    if ( ans == 1 ) {
-        swX = -2.5;
-        swY = -1.25;
-        BOT = 3.5;
-        SID = BOT * HEIGHT/WIDTH;
+    if (SDL_Init(SDL_INIT_VIDEO) != 0) {
+        destroyDisplayAndExit(display, "Unable to initialize SDL", SDL_GetError());
     }
-    if ( ans == 2 ) {
-        printf("\n\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s",
-        "M will size the magnification to your rectangular screen.             ",
-        "                                                                      ",
-        "              .............................                           ",
-        "              .                           .                           ",
-        "              .                           .                           ",
-        "              .                           .                           ",
-        "              .                           .                           ",
-        "              .                           .                           ",
-        "              .                           .                           ",
-        "              .............................                           ",
-        "              ^         bottom                                        ",
-        "           SW corner                                                  ");
-        printf("\n\n\n%s\n%s\n%s\n%s\n%s\n%s\n%s",
-        "Using complex plane coordinates, specify the SW corner of the area    ",
-        "you want to magnify and the length of the bottom of the rectangle.    ",
-        "                                                                      ",
-        "First, the coordinates.  Specify the horizontal coordinate of SW:     ",
-        "(X should be between -2.5 and 0.80)                                   ",
-        "                                                                      ",
-        "                 X = ");
-        while(1) {
-            scanf("%lf", &swX);
-            if (swX <= 0.8 && swX >= -2.5) break;
-            printf("\n\n%s\n%s",
-            "This number is out of the permissible range.",
-            "X should be between -2.5 and 0.80 -- try again: X = ");
-        }
-        printf("\n\n%s%lf","X = ", swX);
-        printf("\n\n%s\n%s\n%s",
-        "Now enter the vertical coordinate:  ",
-        "(Y should be between -1.25 and 1.25)",
-        "                 Y = ");
-        while(1) {
-            scanf("%lf", &swY);
-            if (swY <= 1.25 && swY >= -1.25) break;
-            printf("\n\n%s\n%s",
-            "This number is out of the permissible range.",
-            "Y should be between -1.25 and 1.25 -- try again: Y = ");
-        }
-        printf("\n\n%s%lf","Y = ", swY);
-        printf("\n\nNow enter the rectangle bottom dimension: B = ");
-        while(1) {
-            scanf("%lf", &BOT);
-            printf("\n\n%s%lf\n","B = ", BOT);
-            SID = BOT * HEIGHT/WIDTH;
-            limx = 0.8-swX;
-            limy = 1.25-swY;
-            if (BOT < limx && SID < limy) break;
-            printf("\n\n%s\n%s\n%s",
-            "This length is too large.  The rectangle you have specified",
-            "covers area outside the full size Mandelbrot set.",
-            "Please try again: B = ");
+    if (TTF_Init() != 0) {
+        destroyDisplayAndExit(display, "Unable to initialize SDL_ttf", TTF_GetError());
+    }
+    display->window = SDL_CreateWindow(
+        "Mandelbrot",
+        SDL_WINDOWPOS_CENTERED,
+        SDL_WINDOWPOS_CENTERED,
+        SCREEN_WIDTH,
+        SCREEN_HEIGHT,
+        0
+    );
+    if (!display->window) {
+        destroyDisplayAndExit(display, "Unable to create window", SDL_GetError());
+    }
+    display->renderer = SDL_CreateRenderer(display->window, -1, SDL_RENDERER_ACCELERATED);
+    if (!display->renderer) {
+        destroyDisplayAndExit(display, "Unable to create renderer", SDL_GetError());
+    }
+    display->font = TTF_OpenFont("freefont-ttf/sfd/FreeSans.ttf", 12);
+    if (!display->font) {
+        destroyDisplayAndExit(display, "Unable to load font", TTF_GetError());
+    }
+
+    // Initialize Pallet
+    for (int i = 0; i < 255; i++) {
+        display->pallet[i] = (SDL_Color) { 0, 0, 0, 255 };
+    }
+}
+void destroyDisplay(struct Display *display) {
+    if (display->window) {
+        SDL_DestroyWindow(display->window);
+        display->window = 0;
+    }
+    if (display->renderer) {
+        SDL_DestroyRenderer(display->renderer);
+        display->renderer = 0;
+    }
+    if (display->font) {
+        TTF_CloseFont(display->font);
+        display->font = 0;
+    }
+    SDL_Quit();
+}
+void destroyDisplayAndExit(struct Display *display, char *message, const char *errMessage) {
+    printf("%s: %s\n", message, errMessage);
+    destroyDisplay(display);
+    printf("Exiting.\n");
+    exit(0);
+}
+
+void setColor(struct Display *display, Uint8 r, Uint8 g, Uint8 b) {
+    display->color.r = r;
+    display->color.g = g;
+    display->color.b = b;
+    SDL_SetRenderDrawColor(display->renderer, r, g, b, 255);
+}
+void assignPalletColor(struct Display *display, Uint8 c, SDL_Color *v) {
+    display->pallet[c] = (SDL_Color) { v->r, v->g, v->b, 0xFF };
+}
+void setPalletColor(struct Display *display, Uint8 c) {
+    SDL_Color p = display->pallet[c];
+    setColor(display, p.r, p.g, p.b);
+}
+void setPosition(struct Display *display, int x, int y) {
+    display->position.x = x;
+    display->position.y = y;
+}
+void printText(struct Display *display, char *text) {
+    // Render text
+    SDL_Surface *textSurface = TTF_RenderText_Blended(
+        display->font,
+        text,
+        display->color
+    );
+    if (!textSurface) {
+        destroyDisplayAndExit(display, "Unable to render text.", TTF_GetError());
+    }
+    SDL_Texture *textTexture = SDL_CreateTextureFromSurface(display->renderer, textSurface);
+    if (!textTexture) {
+        destroyDisplayAndExit(display, "Unable create a text texture.", TTF_GetError());
+    }
+
+    // Draw rendered text to screen buffer
+    SDL_Rect dest = {
+        display->position.x,
+        display->position.y,
+        textSurface->w,
+        textSurface->h
+    };
+    SDL_RenderCopy(display->renderer, textTexture, 0, &dest);
+
+    // Clean up
+    SDL_DestroyTexture(textTexture);
+    SDL_FreeSurface(textSurface);
+}
+void drawLineAndSetPosition(struct Display *display, int x, int y) {
+    SDL_RenderDrawLine(
+        display->renderer,
+        display->position.x,
+        display->position.y,
+        x,
+        y
+    );
+    setPosition(display, x, y);
+}
+void colorPixel(struct Display *display, int x, int y) {
+    SDL_RenderDrawPoint(display->renderer, x, y);
+}
+
+void displayFrame(struct Display *display, struct Frame *frame) {
+
+    // New Frame
+    setColor(display, 0, 0, 0);
+    SDL_RenderClear(display->renderer);
+    setColor(display, 255, 255, 255);
+
+    const short xStart = 50;
+    const short yStart = 14;
+    const short xEnd = FRAME_WIDTH + 50;
+    const short yEnd = FRAME_HEIGHT + 14;
+    
+    // Draw Rectangle that will enclose the actual frame
+
+    // Note: Using line drawing instead of rect because
+    //       experimenting with them both, the latter did
+    //       not align perfectly with the lines drawn for
+    //       the interval markers, whereas the former did.
+
+    setPosition(display, xStart, yStart);
+    drawLineAndSetPosition(display, xStart, yEnd);
+    drawLineAndSetPosition(display, xEnd, yEnd);
+    drawLineAndSetPosition(display, xEnd, yStart);
+    drawLineAndSetPosition(display, xStart, yStart);
+
+    // Draw Interval Markers for grid
+
+    const short markWidth = 6;
+
+    // Draw Left interval markers
+    for (short y = 14; y <= yEnd; y += 58) {
+        setPosition(display, xStart - markWidth, y);
+        drawLineAndSetPosition(display, xStart, y);
+    }
+    // Draw Bottom Side interval markers
+    for (short x = 50; x <= xEnd; x += 58) {
+        setPosition(display, x, yEnd + 6);
+        drawLineAndSetPosition(display, x, yEnd);
+    }
+    // Draw Right interval markers
+    for (short y = 14; y <= yEnd; y += 58) {
+        setPosition(display, xEnd + markWidth, y);
+        drawLineAndSetPosition(display, xEnd, y);
+    }
+    // Draw Top Side interval markers
+    for (short x = 50; x <= xEnd; x += 58) {
+        setPosition(display, x, yStart - 6);
+        drawLineAndSetPosition(display, x, yStart);
+    }
+
+    // Draw Axis Labels
+    
+    char label[256];
+    
+    // x-axis (real)
+    for (short x = 47, l = 0; x <= 627; x += 58, l++) {
+        setPosition(display, x, 429);
+        sprintf(label, "%i", l);
+        printText(display, label);
+    }
+    // y-axis (imaginary)
+    for (short y = 414, l = 0; y >= 8; y -= 58, l++) {
+        setPosition(display, 35, y);
+        sprintf(label, "%i", l);
+        printText(display, label);
+    }
+
+    // Display Empty Frame (if no frame data is provided)
+    if (!frame) {
+        SDL_RenderPresent(display->renderer);
+        return;
+    }
+
+    // Draw Origin and Interval Labels
+
+    // Origin
+    setPosition(display, 100, 447);
+    sprintf(label, "Origin:  X = %g  Y = %g", frame->x, frame->y);
+    printText(display, label);
+
+    // Interval
+    setPosition(display, 100, 463);
+    sprintf(label, "Grid Interval:  %g", frame->w / 10);
+    printText(display, label);
+
+    // Render Frame
+
+    // Define colors
+    SDL_Color black =    {   0,   0,   0, 255 };
+    SDL_Color white =    { 255, 255, 255, 255 };
+    SDL_Color brown =    { 171,  87,   0, 255 };
+    SDL_Color violet =   { 255,   0, 127, 255 };
+    SDL_Color red =      { 171,   0,   0, 255 };
+    SDL_Color redhi =    { 255, 107,   0, 255 };
+    SDL_Color orange =   { 255, 139,   0, 255 };
+    SDL_Color yellowlo = { 255, 171,   0, 255 };
+    SDL_Color yellow =   { 255, 255,   0, 255 };
+    SDL_Color greenlo =  { 127, 255,   0, 255 };
+    SDL_Color green =    {   0, 171,   0, 255 };
+    SDL_Color greenhi =  {   0, 255, 127, 255 };
+    SDL_Color cyan =     {   0, 171, 171, 255 }; 
+    SDL_Color bluelo =   {   0, 127, 255, 255 };
+    SDL_Color blue =     {   0,   0, 171, 255 };
+    SDL_Color bluehi =   { 127,   0, 255, 255 };
+    SDL_Color magenta =  { 171,   0, 171, 255 }; 
+    
+    // Define color bands
+    short min = frame->min;
+    short range = 1000 - min;
+    short div[15];
+    div[0] =  min + floor(range * .010); // brown  
+    div[1] =  min + floor(range * .015); // violet   
+    div[2] =  min + floor(range * .020); // red     
+    div[3] =  min + floor(range * .030); // redhi   
+    div[4] =  min + floor(range * .040); // orange  
+    div[5] =  min + floor(range * .050); // yellowlo
+    div[6] =  min + floor(range * .060); // yellow  
+    div[7] =  min + floor(range * .080); // greenlo 
+    div[8] =  min + floor(range * .100); // green   
+    div[9] =  min + floor(range * .150); // greenhi 
+    div[10] = min + floor(range * .200); // cyan    
+    div[11] = min + floor(range * .250); // bluelo  
+    div[12] = min + floor(range * .300); // blue    
+    div[13] = min + floor(range * .350); // bluehi  
+    div[14] = min + floor(range * .400); // magenta 
+
+    // Color in frame
+    for (short r = 0; r <= 578; r++) {
+        for (short i = 0; i <= 404; i++) {
+            short k = frame->k[r][i];
+            SDL_Color c;
+            // Determine b (color band)
+            if (k > 999) {
+                c = black;
+            } else if (k < div[0]) {
+                c = brown;
+            } else if (k < div[1]) {
+                c = violet;
+            } else if (k < div[2]) {
+                c = red;
+            } else if (k < div[3]) {
+                c = redhi;
+            } else if (k < div[4]) {
+                c = orange;
+            } else if (k < div[5]) {
+                c = yellowlo;
+            } else if (k < div[6]) {
+                c = yellow;
+            } else if (k < div[7]) {
+                c = greenlo;
+            } else if (k < div[8]) {
+                c = green;
+            } else if (k < div[9]) {
+                c = greenhi;
+            } else if (k < div[10]) {
+                c = cyan;
+            } else if (k < div[11]) {
+                c = bluelo;
+            } else if (k < div[12]) {
+                c = blue;
+            } else if (k < div[13]) {
+                c = bluehi;
+            } else if (k < div[14]) {
+                c = magenta;
+            } else if (k < 1000) {
+                c = violet;
+            }
+
+            setColor(display, c.r, c.g, c.b);
+            colorPixel(display, r+51, i+15);
         }
     }
-/**********************************************************
- *  do complex calculations and determine # of iterations:
- **********************************************************/
-#if defined _VRES16COLOR
-    bluehi = RGB( 31, 0, 63 );
-    _remappalette( 9, bluehi);
-#endif
-    strcpy(progress,"percent of complex plane completed:");
+    
+    // Display New Frame
+    SDL_RenderPresent(display->renderer);
+}
 
-    gap = BOT / WIDTH;
-    RE = swX + 4*gap;
-    min = 1000;
+int main(int argc, char *argv[]) {
+    // Set up Window
+    struct Display *display = createDisplay();
 
-#if defined _VRES16COLOR
-    _setvideomode(_VRES16COLOR);
-    _setcolor(3);
-    _registerfonts( "helvb.fon" );
-    _setfont("b h10 w5 t'helv'");
-    _moveto(50,200);                         /* display progress */
-    _outgtext(progress);
-    _moveto(197,247);
-    _lineto(303,247);
-    _lineto(303,263);                         /* box for progress graphic */
-    _lineto(197,263);
-    _lineto(197,247);
-#elif defined SDL_VERSION
-    setupGraphics("Mandelbrot", WIDTH, HEIGHT);
-    bluehi = (SDL_Color) { 127, 0, 255, 255 };
-    assignPalletColor(9, &bluehi);
-#endif
+    // Display Empty Graph
+    displayFrame(display, NULL);
 
-    chunk = 1.0;
-    x1 = 200;
-    y1 = 260;
-    x2 = 201;
-    y2 = 250;
+    // Render Start Frame (fully zoomed out)
+    struct Frame *start = renderFrame(NULL, -2.5, -1.25, 3.5);
+    struct Frame *current = start;
+    displayFrame(display, current);
 
-    for ( i = 0; i <= 578; i++) {            /* columns (real direction) */
-        RE = RE + gap;
-        IM = swY + 404*gap;
-        sofar = ( (float)i / 578 )*100;
-        sprintf (s, "%4.1f", sofar);
-
-
-        if (sofar > chunk) {
-            chunk = chunk+1;
-#if defined _VRES16COLOR
-            _setcolor(3);
-            _moveto(230,230);
-            _outgtext(s);
-            _setcolor(9);
-            _rectangle(_GFILLINTERIOR,x1,y1,x2,y2);
-#elif defined SDL_VERSION
-            renderFrame(progress, s, x1, y1, x2, y2);
-#endif
-            x1 = x2;
-            x2 = x2+1;
+    // Wait for Input
+    SDL_Event e;
+    int running = 1;
+    while (running) {
+        if (!SDL_WaitEvent(&e)) continue;
+        if (e.type == SDL_QUIT) {
+            running = 0;
+        } else if (e.type == SDL_KEYDOWN) {
+            if (e.key.keysym.sym == SDLK_ESCAPE) {
+                running = 0;
+            }
         }
+    }
+    
+    // On Zoom In:
+    // Cleanup any child frames that are no longer valid
+    // Render the new child frame
+    // Set Current Frame to Child Frame
+    // Display Current Frame
 
-        for ( j = 0; j <= 404; j++) {       /* rows (imaginary direction) */
-            IM = IM - gap;
-            Z = Complex(0,0);
-            C = Complex( RE, IM );
-            for ( k = 0; k <= 1000; k++) {
+    // On Back:
+    // If no parent frame, do nothing.
+    // Set current frame to parent frame.
+    // Display current frame.
+
+    // On Forward:
+    // If no child frame, do nothing.
+    // Set current frame to child frame.
+    // Display current frame.
+
+    // On Exit:
+    // Clean Up and Exit
+    destroyDisplay(display);
+    display = 0;
+    freeFrame(start);
+    start = 0;
+    current = 0;
+
+    return 0;
+}
+
+struct Frame* renderFrame(struct Frame *parent, double originX, double originY, double frameWidth) {
+    struct Frame *frame = malloc(sizeof(struct Frame));
+    frame->parent = parent;
+    frame->child = NULL;
+    frame->x = originX;
+    frame->y = originY;
+    frame->w = frameWidth;
+
+    // Render frame
+    double gap = frameWidth / FRAME_WIDTH;
+    double r = originX + 4*gap;
+    frame->min = 1000; // Initialize to maximum k value
+    for (short x = 0; x <= 578; x++) { // X-axis is the real axis
+        r = r + gap;
+        double i = frame->y + 404*gap;
+        
+        for (short y = 0; y <= 404; y++) {
+            i = i - gap;
+            struct Complex z = { 0.0, 0.0 };
+            struct Complex c = { r, i };
+            double magnitude;
+            
+            short k;
+            for (k = 0; k <= 1000; k++) {
                 /*
                  * Mandelbrot Equatation: Zn+1 = Zn^2 + C
                  */
-                Z = Cadd( ( Cmul( Z, Z ) ), C );
+                z = cadd(cmul(z,z), c);
 
                 /**
                  * Absolute Value of Z, |Z|.
@@ -251,128 +446,36 @@ int main()
                  * For Complex Numbers, this essentially becomes the Distance Formula.
                  * Distance Formula: SZ^2 = R^2 + I^2
                  */
-                SZ = sqrt( (Z.r * Z.r) + (Z.i * Z.i) );
-                if ( SZ > 2 ) break;
+                magnitude = sqrt((z.r * z.r) + (z.i * z.i));
+                if (magnitude > 2) break;
             }
-            pix[i][j] = k;
-            if ( k < min ) min = k;
+
+            // Todo: use a function pointer to create a callback which allows
+            //       the implementation of a progress bar?
+            
+            frame->k[x][y] = k;
+            if (k < frame->min) frame->min = k;
         }
     }
 
-#if defined _VRES16COLOR
-    _unregisterfonts();
+    return frame;
+}
 
-    getch();                        /* pause */
-    _setvideomode(_DEFAULTMODE);
-#elif defined SDL_VERSION
-    renderFrame(progress, "100", x1, y1, x2, y2);
-    waitForExit();
-    cleanupGraphics();
-#endif
+void freeFrame(struct Frame *frame) {
+    struct Frame *current = frame;
 
-/*****************************
- *  write output to a file:
- ****************************/
-    fprintf(fpout,"%23.20f\n%23.20f\n%22.20f\n%i\n",
-                  swX, swY, BOT, min);
-
-    for ( k = 0; k <= 36; k++) {
-        i = k * 16;                         /* 16 columns of data at a time */
-        for ( j = 0; j <= 404; j++) {       /* rows */
-            if (k == 36) {
-                fprintf(fpout,"%4i %4i %4i\n", pix[i][j],pix[i+1][j],pix[i+2][j]);
-            }
-            if (k < 36) {
-                fprintf(fpout,
-                "%4i %4i %4i %4i %4i %4i %4i %4i %4i %4i %4i %4i %4i %4i %4i %4i\n",
-                pix[i][j],pix[i+1][j],pix[i+2][j],pix[i+3][j],pix[i+4][j],pix[i+5][j],
-                pix[i+6][j],pix[i+7][j],pix[i+8][j],pix[i+9][j],pix[i+10][j],
-                pix[i+11][j],pix[i+12][j],pix[i+13][j],pix[i+14][j],pix[i+15][j]);
-            }
-        }
+    // Find furthest out child
+    while (current->child) current = current->child;
+    
+    // Free all children up to the current frame
+    struct Frame *toFree;
+    while (current != frame) {
+        toFree = current;
+        current = current->parent;
+        free(toFree);
     }
 
-/*  data looks like this:
-
-1000 1000 1000 1000 1000 1000 1000 1000 1000 1000 1000 1000 1000 1000 1000 1000
-1000 1000 1000 1000 1000 1000 1000 1000 1000 1000 1000 1000 1000 1000 1000 1000
-                     ...etc    */
-
+    // Free the current frame
+    if (frame->parent) frame->parent->child = 0;
+    free(frame);
 }
-
-fcomplex Complex(re,im)
-double re, im;              /* real and imaginary parts of complex #'s */
-{
-    fcomplex c;
-    c.r = re;
-    c.i = im;
-    return c;
-}
-
-/*
- * Complex number multiplcation.
- *
- * A demonstration of why the below
- * computation is correct:
- *  (A+Bi)*(C+Di)
- *  A*C + A*Di + Bi*C + Bi*Di
- *  A*C + A*Di + Bi*C + B*D*(i^2)
- *  A*C + A*Di + Bi*C + B*D*(-1)
- *  (A*C - B*D) + (A*Di + C*Bi)
- */
-fcomplex Cmul(a,b)
-fcomplex a,b;
-{
-    fcomplex c;
-    c.r= a.r*b.r - a.i*b.i;
-    c.i= a.i*b.r + a.r*b.i;
-    return c;
-}
-
-/*
- * Complex number addition.
- * (A+Bi) + (C+Di)
- * (A+C) + (B+D)i
- */
-fcomplex Cadd(a,b)
-fcomplex a,b;
-{
-    fcomplex c;
-    c.r = a.r + b.r;
-    c.i = a.i + b.i;
-    return c;
-}
-
-#if defined SDL_VERSION
-void renderFrame(char *progress, char *s, int x1, int y1, int x2, int y2) {
-    // Clear frame buffer
-    newFrame();
-
-    // Draw progress text
-    setPalletColor(3);
-    setPosition(50, 200);
-    printText(progress);
-
-    // Draw box
-    setPosition(197, 247);
-    drawLineAndSetPosition(303, 247);
-    drawLineAndSetPosition(303, 263);
-    drawLineAndSetPosition(197, 263);
-    drawLineAndSetPosition(197, 247);
-
-    // Draw rect
-    setPalletColor(9);
-    SDL_Rect fill ={
-        x1, y1, x2 - x1, y2 - y1 
-    }; 
-    SDL_RenderFillRect(renderer, &fill);
-
-    // Draw progress percent
-    setPalletColor(3);
-    setPosition(230, 230);
-    printText(s);
-
-    // Display frame buffer
-    SDL_RenderPresent(renderer);
-}
-#endif

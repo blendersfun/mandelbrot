@@ -85,7 +85,7 @@ void waitForExit() {
     SDL_Event e;
     int waiting = 1;
     while (waiting) {
-        if (!SDL_PollEvent(&e)) continue;
+        if (!SDL_WaitEvent(&e)) continue;
         if (e.type == SDL_QUIT) {
             waiting = 0;
         } else if (e.type == SDL_KEYDOWN) {

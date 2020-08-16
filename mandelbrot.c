@@ -182,7 +182,7 @@ void drawLineAndSetPosition(struct Display *display, int x, int y) {
 void colorPixel(struct Display *display, int x, int y) {
     SDL_RenderDrawPoint(display->renderer, x, y);
 }
-
+short useMin = 1;
 void displayFrame(struct Display *display, struct Frame *frame) {
 
     // New Frame
@@ -289,7 +289,7 @@ void displayFrame(struct Display *display, struct Frame *frame) {
     SDL_Color magenta =  { 171,   0, 171, 255 }; 
     
     // Define color bands
-    short min = frame->min;
+    short min = useMin ? frame->min : 0;
     short range = 1000 - min;
     short div[15];
     div[0] =  min + floor(range * .010); // brown  
@@ -357,6 +357,10 @@ void displayFrame(struct Display *display, struct Frame *frame) {
 }
 
 int main(int argc, char *argv[]) {
+    double x = -2.5;
+    double y = -1.25;
+    double w = 3.5;
+
     // Set up Window
     struct Display *display = createDisplay();
 
@@ -365,7 +369,7 @@ int main(int argc, char *argv[]) {
     SDL_RenderPresent(display->renderer);
 
     // Render Start Frame (fully zoomed out)
-    struct Frame *start = renderFrame(NULL, -2.5, -1.25, 3.5);
+    struct Frame *start = renderFrame(NULL, x, y, w);
     struct Frame *current = start;
     displayFrame(display, current);
     SDL_RenderPresent(display->renderer);
@@ -395,6 +399,14 @@ int main(int argc, char *argv[]) {
                     displayFrame(display, current);
                     SDL_RenderPresent(display->renderer);
                 }
+            } else if (e.key.keysym.sym == SDLK_EQUALS) {
+                printf("plus\n");
+            } else if (e.key.keysym.sym == SDLK_MINUS) {
+                printf("minus\n");
+            } else if (e.key.keysym.sym == SDLK_m) {
+                useMin = !useMin;
+                displayFrame(display, current);
+                SDL_RenderPresent(display->renderer);
             }
         } else if (e.type == SDL_MOUSEBUTTONDOWN) {
             // Set zoom center
@@ -434,11 +446,14 @@ int main(int argc, char *argv[]) {
             y = current->y + gap*(FRAME_HEIGHT - y);
             w = gap*w;
 
-            if (current->child) freeFrame(current->child);
-            current->child = renderFrame(current, x, y, w);
-            current = current->child;
-            displayFrame(display, current);
-            SDL_RenderPresent(display->renderer);
+
+            if (w != 0.0) {
+                if (current->child) freeFrame(current->child);
+                current->child = renderFrame(current, x, y, w);
+                current = current->child;
+                displayFrame(display, current);
+                SDL_RenderPresent(display->renderer);
+            }
             
             // Reset
             zooming = 0;
@@ -448,24 +463,7 @@ int main(int argc, char *argv[]) {
             zoom.h = 0;
         }
     }
-    
-    // On Zoom In:
-    // Cleanup any child frames that are no longer valid
-    // Render the new child frame
-    // Set Current Frame to Child Frame
-    // Display Current Frame
 
-    // On Back:
-    // If no parent frame, do nothing.
-    // Set current frame to parent frame.
-    // Display current frame.
-
-    // On Forward:
-    // If no child frame, do nothing.
-    // Set current frame to child frame.
-    // Display current frame.
-
-    // On Exit:
     // Clean Up and Exit
     destroyDisplay(display);
     display = 0;
@@ -488,6 +486,7 @@ struct Frame* renderFrame(struct Frame *parent, double originX, double originY, 
     double gap = frameWidth / FRAME_WIDTH;
     double r = originX + 4*gap;
     frame->min = 1000; // Initialize to maximum k value
+
     for (short x = 0; x <= 578; x++) { // X-axis is the real axis
         r = r + gap;
         double i = frame->y + 404*gap;
@@ -501,7 +500,7 @@ struct Frame* renderFrame(struct Frame *parent, double originX, double originY, 
             short k;
             for (k = 0; k <= 1000; k++) {
                 /*
-                 * Mandelbrot Equatation: Zn+1 = Zn^2 + C
+                 * Mandelbrot Equation: Zn+1 = Zn^2 + C
                  */
                 z = cadd(cmul(z,z), c);
 

@@ -9,7 +9,6 @@
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
 
-
 /*
  * The Frame struct stores a single frame of the
  * Mandelbrot set. A frame is defined as the k
@@ -52,7 +51,6 @@ void freeFrame(struct Frame*);
 const int SCREEN_WIDTH = 700;
 const int SCREEN_HEIGHT = 500;
 
-const SDL_Point FRAME_ORIGIN = { 50, 14 };
 
 struct Display {
     SDL_Window *window;
@@ -60,301 +58,64 @@ struct Display {
     TTF_Font *font;
     SDL_Color color;
     SDL_Point position;
-    SDL_Color pallet[255];
 };
 
+struct Display* createDisplay();
+void destroyDisplay(struct Display*);
 void destroyDisplayAndExit(struct Display*, char*, const char*);
+void setColor(struct Display*, Uint8, Uint8, Uint8);
+void setPosition(struct Display*, int, int);
+void printText(struct Display*, char*);
+void drawLineAndSetPosition(struct Display*, int, int);
+void colorPixel(struct Display*, int, int);
 
-struct Display* createDisplay() {
-    struct Display *display = malloc(sizeof(struct Display));
-    if (!display) {
-        printf("Unable to allocate memory for display.\n");
-        exit(0);
-    }
-    if (SDL_Init(SDL_INIT_VIDEO) != 0) {
-        destroyDisplayAndExit(display, "Unable to initialize SDL", SDL_GetError());
-    }
-    if (TTF_Init() != 0) {
-        destroyDisplayAndExit(display, "Unable to initialize SDL_ttf", TTF_GetError());
-    }
-    display->window = SDL_CreateWindow(
-        "Mandelbrot",
-        SDL_WINDOWPOS_CENTERED,
-        SDL_WINDOWPOS_CENTERED,
-        SCREEN_WIDTH,
-        SCREEN_HEIGHT,
-        0
-    );
-    if (!display->window) {
-        destroyDisplayAndExit(display, "Unable to create window", SDL_GetError());
-    }
-    display->renderer = SDL_CreateRenderer(display->window, -1, SDL_RENDERER_ACCELERATED);
-    if (!display->renderer) {
-        destroyDisplayAndExit(display, "Unable to create renderer", SDL_GetError());
-    }
-    display->font = TTF_OpenFont("freefont-ttf/sfd/FreeSans.ttf", 12);
-    if (!display->font) {
-        destroyDisplayAndExit(display, "Unable to load font", TTF_GetError());
-    }
+/*
+ * Displaying Frames
+ */
 
-    // Initialize Pallet
-    for (int i = 0; i < 255; i++) {
-        display->pallet[i] = (SDL_Color) { 0, 0, 0, 255 };
-    }
-}
-void destroyDisplay(struct Display *display) {
-    if (display->window) {
-        SDL_DestroyWindow(display->window);
-        display->window = 0;
-    }
-    if (display->renderer) {
-        SDL_DestroyRenderer(display->renderer);
-        display->renderer = 0;
-    }
-    if (display->font) {
-        TTF_CloseFont(display->font);
-        display->font = 0;
-    }
-    SDL_Quit();
-}
-void destroyDisplayAndExit(struct Display *display, char *message, const char *errMessage) {
-    printf("%s: %s\n", message, errMessage);
-    destroyDisplay(display);
-    printf("Exiting.\n");
-    exit(0);
-}
-
-void setColor(struct Display *display, Uint8 r, Uint8 g, Uint8 b) {
-    display->color.r = r;
-    display->color.g = g;
-    display->color.b = b;
-    SDL_SetRenderDrawColor(display->renderer, r, g, b, 255);
-}
-void assignPalletColor(struct Display *display, Uint8 c, SDL_Color *v) {
-    display->pallet[c] = (SDL_Color) { v->r, v->g, v->b, 0xFF };
-}
-void setPalletColor(struct Display *display, Uint8 c) {
-    SDL_Color p = display->pallet[c];
-    setColor(display, p.r, p.g, p.b);
-}
-void setPosition(struct Display *display, int x, int y) {
-    display->position.x = x;
-    display->position.y = y;
-}
-void printText(struct Display *display, char *text) {
-    // Render text
-    SDL_Surface *textSurface = TTF_RenderText_Blended(
-        display->font,
-        text,
-        display->color
-    );
-    if (!textSurface) {
-        destroyDisplayAndExit(display, "Unable to render text.", TTF_GetError());
-    }
-    SDL_Texture *textTexture = SDL_CreateTextureFromSurface(display->renderer, textSurface);
-    if (!textTexture) {
-        destroyDisplayAndExit(display, "Unable create a text texture.", TTF_GetError());
-    }
-
-    // Draw rendered text to screen buffer
-    SDL_Rect dest = {
-        display->position.x,
-        display->position.y,
-        textSurface->w,
-        textSurface->h
-    };
-    SDL_RenderCopy(display->renderer, textTexture, 0, &dest);
-
-    // Clean up
-    SDL_DestroyTexture(textTexture);
-    SDL_FreeSurface(textSurface);
-}
-void drawLineAndSetPosition(struct Display *display, int x, int y) {
-    SDL_RenderDrawLine(
-        display->renderer,
-        display->position.x,
-        display->position.y,
-        x,
-        y
-    );
-    setPosition(display, x, y);
-}
-void colorPixel(struct Display *display, int x, int y) {
-    SDL_RenderDrawPoint(display->renderer, x, y);
-}
+const SDL_Point FRAME_ORIGIN = { 50, 14 };
 short useMin = 1;
-void displayFrame(struct Display *display, struct Frame *frame) {
 
-    // New Frame
-    setColor(display, 0, 0, 0);
-    SDL_RenderClear(display->renderer);
-    setColor(display, 255, 255, 255);
+enum ColorBands {
+    Brown,
+    Violet,
+    Red,
+    RedHi,
+    Orange,
+    YellowLo,
+    Yellow,
+    GreenLo,
+    Green,
+    GreenHi,
+    Cyan,
+    BlueLo,
+    Blue,
+    BlueHi,
+    Magenta,
+    Black
+};
+const SDL_Color colors[] = {
+    [Brown] =    { 171,  87,   0, 255 },
+    [Violet] =   { 255,   0, 127, 255 },  
+    [Red] =      { 171,   0,   0, 255 },
+    [RedHi] =    { 255, 107,   0, 255 },
+    [Orange] =   { 255, 139,   0, 255 },
+    [YellowLo] = { 255, 171,   0, 255 },
+    [Yellow] =   { 255, 255,   0, 255 },
+    [GreenLo] =  { 127, 255,   0, 255 },
+    [Green] =    {   0, 171,   0, 255 },
+    [GreenHi] =  {   0, 255, 127, 255 },
+    [Cyan] =     {   0, 171, 171, 255 },
+    [BlueLo] =   {   0, 127, 255, 255 },
+    [Blue] =     {   0,   0, 171, 255 },
+    [BlueHi] =   { 127,   0, 255, 255 },
+    [Magenta] =  { 171,   0, 171, 255 },
+    [Black] =    {   0,   0,   0, 255 }
+};
 
-    const short xStart = FRAME_ORIGIN.x;
-    const short yStart = FRAME_ORIGIN.y;
-    const short xEnd = FRAME_WIDTH + FRAME_ORIGIN.x;
-    const short yEnd = FRAME_HEIGHT + FRAME_ORIGIN.y;
-    
-    // Draw Rectangle that will enclose the actual frame
-
-    // Note: Using line drawing instead of rect because
-    //       experimenting with them both, the latter did
-    //       not align perfectly with the lines drawn for
-    //       the interval markers, whereas the former did.
-
-    setPosition(display, xStart, yStart);
-    drawLineAndSetPosition(display, xStart, yEnd);
-    drawLineAndSetPosition(display, xEnd, yEnd);
-    drawLineAndSetPosition(display, xEnd, yStart);
-    drawLineAndSetPosition(display, xStart, yStart);
-
-    // Draw Interval Markers for grid
-
-    const short markWidth = 6;
-
-    // Draw Left interval markers
-    for (short y = FRAME_ORIGIN.y; y <= yEnd; y += 58) {
-        setPosition(display, xStart - markWidth, y);
-        drawLineAndSetPosition(display, xStart, y);
-    }
-    // Draw Bottom Side interval markers
-    for (short x = FRAME_ORIGIN.x; x <= xEnd; x += 58) {
-        setPosition(display, x, yEnd + 6);
-        drawLineAndSetPosition(display, x, yEnd);
-    }
-    // Draw Right interval markers
-    for (short y = FRAME_ORIGIN.y; y <= yEnd; y += 58) {
-        setPosition(display, xEnd + markWidth, y);
-        drawLineAndSetPosition(display, xEnd, y);
-    }
-    // Draw Top Side interval markers
-    for (short x = FRAME_ORIGIN.x; x <= xEnd; x += 58) {
-        setPosition(display, x, yStart - 6);
-        drawLineAndSetPosition(display, x, yStart);
-    }
-
-    // Draw Axis Labels
-    
-    char label[256];
-    
-    // x-axis (real)
-    for (short x = 47, l = 0; x <= 627; x += 58, l++) {
-        setPosition(display, x, 429);
-        sprintf(label, "%i", l);
-        printText(display, label);
-    }
-    // y-axis (imaginary)
-    for (short y = 414, l = 0; y >= 8; y -= 58, l++) {
-        setPosition(display, 35, y);
-        sprintf(label, "%i", l);
-        printText(display, label);
-    }
-
-    // Display Empty Frame (if no frame data is provided)
-    if (!frame) {
-        return;
-    }
-
-    // Draw Origin and Interval Labels
-
-    // Origin
-    setPosition(display, 100, 447);
-    sprintf(label, "Origin:  X = %g  Y = %g", frame->x, frame->y);
-    printText(display, label);
-
-    // Interval
-    setPosition(display, 100, 463);
-    sprintf(label, "Grid Interval:  %g", frame->w / 10);
-    printText(display, label);
-
-    // Render Frame
-
-    // Define colors
-    SDL_Color black =    {   0,   0,   0, 255 };
-    SDL_Color white =    { 255, 255, 255, 255 };
-    SDL_Color brown =    { 171,  87,   0, 255 };
-    SDL_Color violet =   { 255,   0, 127, 255 };
-    SDL_Color red =      { 171,   0,   0, 255 };
-    SDL_Color redhi =    { 255, 107,   0, 255 };
-    SDL_Color orange =   { 255, 139,   0, 255 };
-    SDL_Color yellowlo = { 255, 171,   0, 255 };
-    SDL_Color yellow =   { 255, 255,   0, 255 };
-    SDL_Color greenlo =  { 127, 255,   0, 255 };
-    SDL_Color green =    {   0, 171,   0, 255 };
-    SDL_Color greenhi =  {   0, 255, 127, 255 };
-    SDL_Color cyan =     {   0, 171, 171, 255 }; 
-    SDL_Color bluelo =   {   0, 127, 255, 255 };
-    SDL_Color blue =     {   0,   0, 171, 255 };
-    SDL_Color bluehi =   { 127,   0, 255, 255 };
-    SDL_Color magenta =  { 171,   0, 171, 255 }; 
-    
-    // Define color bands
-    short min = useMin ? frame->min : 0;
-    short range = 1000 - min;
-    short div[15];
-    div[0] =  min + floor(range * .010); // brown  
-    div[1] =  min + floor(range * .015); // violet   
-    div[2] =  min + floor(range * .020); // red     
-    div[3] =  min + floor(range * .030); // redhi   
-    div[4] =  min + floor(range * .040); // orange  
-    div[5] =  min + floor(range * .050); // yellowlo
-    div[6] =  min + floor(range * .060); // yellow  
-    div[7] =  min + floor(range * .080); // greenlo 
-    div[8] =  min + floor(range * .100); // green   
-    div[9] =  min + floor(range * .150); // greenhi 
-    div[10] = min + floor(range * .200); // cyan    
-    div[11] = min + floor(range * .250); // bluelo  
-    div[12] = min + floor(range * .300); // blue    
-    div[13] = min + floor(range * .350); // bluehi  
-    div[14] = min + floor(range * .400); // magenta 
-
-    // Color in frame
-    for (short r = 0; r <= 578; r++) {
-        for (short i = 0; i <= 404; i++) {
-            short k = frame->k[r][i];
-            SDL_Color c;
-            // Determine b (color band)
-            if (k > 999) {
-                c = black;
-            } else if (k < div[0]) {
-                c = brown;
-            } else if (k < div[1]) {
-                c = violet;
-            } else if (k < div[2]) {
-                c = red;
-            } else if (k < div[3]) {
-                c = redhi;
-            } else if (k < div[4]) {
-                c = orange;
-            } else if (k < div[5]) {
-                c = yellowlo;
-            } else if (k < div[6]) {
-                c = yellow;
-            } else if (k < div[7]) {
-                c = greenlo;
-            } else if (k < div[8]) {
-                c = green;
-            } else if (k < div[9]) {
-                c = greenhi;
-            } else if (k < div[10]) {
-                c = cyan;
-            } else if (k < div[11]) {
-                c = bluelo;
-            } else if (k < div[12]) {
-                c = blue;
-            } else if (k < div[13]) {
-                c = bluehi;
-            } else if (k < div[14]) {
-                c = magenta;
-            } else if (k < 1000) {
-                c = violet;
-            }
-
-            setColor(display, c.r, c.g, c.b);
-            colorPixel(display, r+51, i+15);
-        }
-    }
-}
+void displayFrame(struct Display*, struct Frame*);
+void displayFrameBorder(struct Display*);
+void displayFrameData(struct Display*, struct Frame*);
 
 int main(int argc, char *argv[]) {
     double x = -2.5;
@@ -474,6 +235,10 @@ int main(int argc, char *argv[]) {
     return 0;
 }
 
+/*
+ * Frame-related Functions
+ */
+
 struct Frame* renderFrame(struct Frame *parent, double originX, double originY, double frameWidth) {
     struct Frame *frame = malloc(sizeof(struct Frame));
     frame->parent = parent;
@@ -543,3 +308,256 @@ void freeFrame(struct Frame *frame) {
     if (frame->parent) frame->parent->child = 0;
     free(frame);
 }
+
+/*
+ * Display-related Functions
+ */
+
+struct Display* createDisplay() {
+    struct Display *display = malloc(sizeof(struct Display));
+    if (!display) {
+        printf("Unable to allocate memory for display.\n");
+        exit(0);
+    }
+    if (SDL_Init(SDL_INIT_VIDEO) != 0) {
+        destroyDisplayAndExit(display, "Unable to initialize SDL", SDL_GetError());
+    }
+    if (TTF_Init() != 0) {
+        destroyDisplayAndExit(display, "Unable to initialize SDL_ttf", TTF_GetError());
+    }
+    display->window = SDL_CreateWindow(
+        "Mandelbrot",
+        SDL_WINDOWPOS_CENTERED,
+        SDL_WINDOWPOS_CENTERED,
+        SCREEN_WIDTH,
+        SCREEN_HEIGHT,
+        0
+    );
+    if (!display->window) {
+        destroyDisplayAndExit(display, "Unable to create window", SDL_GetError());
+    }
+    display->renderer = SDL_CreateRenderer(display->window, -1, SDL_RENDERER_ACCELERATED);
+    if (!display->renderer) {
+        destroyDisplayAndExit(display, "Unable to create renderer", SDL_GetError());
+    }
+    display->font = TTF_OpenFont("freefont-ttf/sfd/FreeSans.ttf", 12);
+    if (!display->font) {
+        destroyDisplayAndExit(display, "Unable to load font", TTF_GetError());
+    }
+
+    return display;
+}
+void destroyDisplay(struct Display *display) {
+    if (display->window) {
+        SDL_DestroyWindow(display->window);
+        display->window = 0;
+    }
+    if (display->renderer) {
+        SDL_DestroyRenderer(display->renderer);
+        display->renderer = 0;
+    }
+    if (display->font) {
+        TTF_CloseFont(display->font);
+        display->font = 0;
+    }
+    SDL_Quit();
+}
+void destroyDisplayAndExit(struct Display *display, char *message, const char *errMessage) {
+    printf("%s: %s\n", message, errMessage);
+    destroyDisplay(display);
+    printf("Exiting.\n");
+    exit(0);
+}
+void setColor(struct Display *display, Uint8 r, Uint8 g, Uint8 b) {
+    display->color.r = r;
+    display->color.g = g;
+    display->color.b = b;
+    SDL_SetRenderDrawColor(display->renderer, r, g, b, 255);
+}
+void setPosition(struct Display *display, int x, int y) {
+    display->position.x = x;
+    display->position.y = y;
+}
+void printText(struct Display *display, char *text) {
+    // Render text
+    SDL_Surface *textSurface = TTF_RenderText_Blended(
+        display->font,
+        text,
+        display->color
+    );
+    if (!textSurface) {
+        destroyDisplayAndExit(display, "Unable to render text.", TTF_GetError());
+    }
+    SDL_Texture *textTexture = SDL_CreateTextureFromSurface(display->renderer, textSurface);
+    if (!textTexture) {
+        destroyDisplayAndExit(display, "Unable create a text texture.", TTF_GetError());
+    }
+
+    // Draw rendered text to screen buffer
+    SDL_Rect dest = {
+        display->position.x,
+        display->position.y,
+        textSurface->w,
+        textSurface->h
+    };
+    SDL_RenderCopy(display->renderer, textTexture, 0, &dest);
+
+    // Clean up
+    SDL_DestroyTexture(textTexture);
+    SDL_FreeSurface(textSurface);
+}
+void drawLineAndSetPosition(struct Display *display, int x, int y) {
+    SDL_RenderDrawLine(
+        display->renderer,
+        display->position.x,
+        display->position.y,
+        x,
+        y
+    );
+    setPosition(display, x, y);
+}
+void colorPixel(struct Display *display, int x, int y) {
+    SDL_RenderDrawPoint(display->renderer, x, y);
+}
+
+/*
+ * Displaying Frames
+ */
+
+void displayFrame(struct Display *display, struct Frame *frame) {
+
+    // New Frame
+    setColor(display, 0, 0, 0);
+    SDL_RenderClear(display->renderer);
+    setColor(display, 255, 255, 255);
+
+    displayFrameBorder(display);
+
+    // Display Empty Frame (if no frame data is provided)
+    if (!frame) {
+        return;
+    }
+
+    displayFrameData(display, frame);
+}
+void displayFrameBorder(struct Display *display) {
+
+    // Draw Rectangle that will enclose the actual frame
+
+    const short xStart = FRAME_ORIGIN.x;
+    const short yStart = FRAME_ORIGIN.y;
+    const short xEnd = FRAME_WIDTH + FRAME_ORIGIN.x;
+    const short yEnd = FRAME_HEIGHT + FRAME_ORIGIN.y;
+
+    // Note: Using line drawing instead of rect because
+    //       experimenting with them both, the latter did
+    //       not align perfectly with the lines drawn for
+    //       the interval markers, whereas the former did.
+
+    setPosition(display, xStart, yStart);
+    drawLineAndSetPosition(display, xStart, yEnd);
+    drawLineAndSetPosition(display, xEnd, yEnd);
+    drawLineAndSetPosition(display, xEnd, yStart);
+    drawLineAndSetPosition(display, xStart, yStart);
+
+    // Draw Interval Markers for grid
+
+    const short markWidth = 6;
+
+    // Draw Left interval markers
+    for (short y = FRAME_ORIGIN.y; y <= yEnd; y += 58) {
+        setPosition(display, xStart - markWidth, y);
+        drawLineAndSetPosition(display, xStart, y);
+    }
+    // Draw Bottom Side interval markers
+    for (short x = FRAME_ORIGIN.x; x <= xEnd; x += 58) {
+        setPosition(display, x, yEnd + 6);
+        drawLineAndSetPosition(display, x, yEnd);
+    }
+    // Draw Right interval markers
+    for (short y = FRAME_ORIGIN.y; y <= yEnd; y += 58) {
+        setPosition(display, xEnd + markWidth, y);
+        drawLineAndSetPosition(display, xEnd, y);
+    }
+    // Draw Top Side interval markers
+    for (short x = FRAME_ORIGIN.x; x <= xEnd; x += 58) {
+        setPosition(display, x, yStart - 6);
+        drawLineAndSetPosition(display, x, yStart);
+    }
+
+    // Draw Axis Labels
+    
+    char label[256];
+    
+    // x-axis (real)
+    for (short x = 47, l = 0; x <= 627; x += 58, l++) {
+        setPosition(display, x, 429);
+        sprintf(label, "%i", l);
+        printText(display, label);
+    }
+    // y-axis (imaginary)
+    for (short y = 414, l = 0; y >= 8; y -= 58, l++) {
+        setPosition(display, 35, y);
+        sprintf(label, "%i", l);
+        printText(display, label);
+    }
+}
+
+void displayFrameData(struct Display *display, struct Frame *frame) {
+
+    // Draw Origin and Interval Labels
+
+    char label[256];
+
+    // Origin
+    setPosition(display, 100, 447);
+    sprintf(label, "Origin:  X = %g  Y = %g", frame->x, frame->y);
+    printText(display, label);
+
+    // Interval
+    setPosition(display, 100, 463);
+    sprintf(label, "Grid Interval:  %g", frame->w / 10);
+    printText(display, label);
+
+    // Render Frame
+    
+    // Define color bands
+    short min = useMin ? frame->min : 0;
+    short range = 1000 - min;
+    short div[15];
+    div[Brown]    = min + floor(range * .010); 
+    div[Violet]   = min + floor(range * .015);  
+    div[Red]      = min + floor(range * .020); 
+    div[RedHi]    = min + floor(range * .030); 
+    div[Orange]   = min + floor(range * .040); 
+    div[YellowLo] = min + floor(range * .050);
+    div[Yellow]   = min + floor(range * .060); 
+    div[GreenLo]  = min + floor(range * .080); 
+    div[Green]    = min + floor(range * .100); 
+    div[GreenHi]  = min + floor(range * .150); 
+    div[Cyan]     = min + floor(range * .200); 
+    div[BlueLo]   = min + floor(range * .250); 
+    div[Blue]     = min + floor(range * .300); 
+    div[BlueHi]   = min + floor(range * .350); 
+    div[Magenta]  = min + floor(range * .400); 
+
+    // Color in frame
+    for (short r = 0; r <= 578; r++) {
+        for (short i = 0; i <= 404; i++) {
+            short k = frame->k[r][i];
+            SDL_Color c = colors[Black];
+
+            // Determine b (color band)
+            for (short b = 0; b < Black; b++) {
+                if (k < div[b]) {
+                    c = colors[b];
+                    break;
+                }
+            }
+
+            setColor(display, c.r, c.g, c.b);
+            colorPixel(display, r+51, i+15);
+        }
+    }
+}
+
